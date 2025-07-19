@@ -24,7 +24,6 @@ import { sendKafkaRequest } from 'src/shared/utils/kafka/send.kafka.request';
 
 @Controller('user')
 @ApiTags('user')
-@ApiBearerAuth()
 @UseGuards(AuthGuard)
 export class UserGatewayController implements OnModuleInit {
   private readonly logger = new Logger(UserGatewayController.name);

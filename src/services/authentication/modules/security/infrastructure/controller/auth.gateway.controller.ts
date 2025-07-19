@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Get,
   Inject,
   Logger,
   OnModuleInit,
   Post,
   Req,
+  Res,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ClientKafka, RpcException } from '@nestjs/microservices';
@@ -17,6 +19,8 @@ import { SignUpRequest } from '../../domain/schemas/dto/request/signup.request';
 import { CreateLogsNotificationsRequest } from 'src/services/notifications/modules/notifications/domain/schemas/dto/request/create.logs-notifications.request';
 import { statusCode } from 'src/settings/environments/status-code';
 import { sendKafkaRequest } from 'src/shared/utils/kafka/send.kafka.request';
+import { Response } from 'express';
+import { JwtService } from '@nestjs/jwt';
 
 @Controller('auth')
 @ApiTags('Authentication')
@@ -27,11 +31,15 @@ export class AuthGatewayController implements OnModuleInit {
     private readonly authClient: ClientKafka,
     @Inject(environments.notificationKafkaClient)
     private readonly notificationClient: ClientKafka,
+    private readonly jwtService: JwtService,
   ) {}
 
   async onModuleInit() {
     this.authClient.subscribeToResponseOf('auth.signin');
     this.authClient.subscribeToResponseOf('auth.signup');
+    this.authClient.subscribeToResponseOf('auth.verify-token');
+    this.authClient.subscribeToResponseOf('auth.findUserByEmail');
+    this.authClient.subscribeToResponseOf('auth.currentUser');
     await this.authClient.connect();
     console.log(this.authClient['responsePatterns']);
   }
@@ -45,6 +53,7 @@ export class AuthGatewayController implements OnModuleInit {
   async signin(
     @Req() request: Request,
     @Body() signInRequest: SignInRequest,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<ApiResponse> {
     try {
       this.logger.log(
@@ -53,6 +62,20 @@ export class AuthGatewayController implements OnModuleInit {
       const tokenResponse = (await sendKafkaRequest(
         this.authClient.send('auth.signin', signInRequest),
       )) as { idUser?: string; [key: string]: any };
+
+      res.cookie('auth_token', tokenResponse.accessToken, {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none', // 'lax' is a good default for CSRF protection
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+      });
+
+      res.cookie('refresh_token', tokenResponse.refreshToken, {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none', // 'lax' is a good default for CSRF protection
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+      });
 
       const clientIp =
         request.headers['x-forwarded-for']?.toString().split(',')[0].trim() ||
@@ -106,6 +129,7 @@ export class AuthGatewayController implements OnModuleInit {
   async signup(
     @Req() request: Request,
     @Body() signUpRequest: SignUpRequest,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<ApiResponse> {
     try {
       this.logger.log(
@@ -120,6 +144,20 @@ export class AuthGatewayController implements OnModuleInit {
         idUser?: string;
         [key: string]: any;
       };
+
+      res.cookie('auth_token', tokenResponse.accessToken, {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none',
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+      });
+
+      res.cookie('refresh_token', tokenResponse.refreshToken, {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none',
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+      });
 
       const notification: CreateLogsNotificationsRequest = {
         log: 'User signed up successfully',
@@ -150,6 +188,90 @@ export class AuthGatewayController implements OnModuleInit {
       return new ApiResponse(
         'User signed up successfully',
         tokenResponse,
+        request.url,
+      );
+    } catch (error) {
+      throw new RpcException(error);
+    }
+  }
+
+  @Post('logout')
+  @ApiOperation({
+    summary: 'Logout a user',
+    description: 'This endpoint allows a user to log out of their account.',
+  })
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiResponse> {
+    try {
+      this.logger.log(`Received logout request for user`);
+      // Here you would typically handle the logout logic, such as invalidating the token
+      res.clearCookie('auth_token'); // Clear the cookie
+      this.logger.log(`User logged out successfully`);
+      return new ApiResponse('User logged out successfully', null, request.url);
+    } catch (error) {
+      throw new RpcException(error);
+    }
+  }
+
+  @Get('verify-token')
+  @ApiOperation({
+    summary: 'Verify user token',
+    description: 'This endpoint verifies the user token.',
+  })
+  async verifyToken(
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiResponse> {
+    try {
+      this.logger.log(`Received token verification request`);
+      const auth_token =
+        request.cookies['auth_token'] ||
+        request.headers.authorization?.split(' ')[1];
+      const isValidToken: boolean = await sendKafkaRequest(
+        this.authClient.send('auth.verify-token', { auth_token: auth_token }),
+      );
+
+      if (!isValidToken) {
+        this.logger.warn(`Invalid token received`);
+        throw new RpcException({
+          statusCode: statusCode.UNAUTHORIZED,
+          message: 'Token is not valid or has expired ❌',
+        });
+      }
+
+      this.logger.log(`Token verification successful`);
+      return new ApiResponse('Token is valid', isValidToken, request.url);
+    } catch (error) {
+      throw new RpcException(error);
+    }
+  }
+
+  @Get('current-user')
+  @ApiOperation({
+    summary: 'Get current authenticated user',
+    description:
+      'This endpoint retrieves the current authenticated user based on the provided JWT token.',
+  })
+  async getCurrentUser(
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiResponse> {
+    try {
+      this.logger.log(`Received request for current user`);
+      const auth_token =
+        request.cookies['auth_token'] ||
+        request.headers.authorization?.split(' ')[1];
+
+      const user = await sendKafkaRequest(
+        this.authClient.send('auth.currentUser', { auth_token: auth_token }),
+      );
+
+      this.logger.log(`Current user retrieved successfully`);
+      return new ApiResponse(
+        'Current user retrieved successfully',
+        user,
         request.url,
       );
     } catch (error) {

@@ -3,7 +3,8 @@ import 'dotenv/config';
 import * as joi from 'joi';
 
 interface EnvironmentsVariables {
-  PORT: number;
+  PORT_DEVELOPMENT: number;
+  PORT_PRODUCTION: number;
   AUTH_MICROSERVICE_PORT: number;
   AUTH_MICROSERVICE_HOST: string;
   AUTH_SERVICE: string;
@@ -48,7 +49,8 @@ interface EnvironmentsVariables {
 
 const environmentsSchema = joi
   .object({
-    PORT: joi.number().required(),
+    PORT_DEVELOPMENT: joi.number().required(),
+    PORT_PRODUCTION: joi.number().required(),
     AUTH_MICROSERVICE_PORT: joi.number(),
     AUTH_MICROSERVICE_HOST: joi.string(),
     AUTH_SERVICE: joi.string(),
@@ -99,7 +101,8 @@ if (error) {
 const environmentsVariables: EnvironmentsVariables = value;
 
 export const environments = {
-  serverPort: environmentsVariables.PORT,
+  serverPortDevelopment: environmentsVariables.PORT_DEVELOPMENT,
+  serverPortProduction: environmentsVariables.PORT_PRODUCTION,
   authMicroservicePort: environmentsVariables.AUTH_MICROSERVICE_PORT,
   authMicroserviceHost: environmentsVariables.AUTH_MICROSERVICE_HOST,
   authService: environmentsVariables.AUTH_SERVICE,

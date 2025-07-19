@@ -20,9 +20,9 @@ COPY --from=deps /usr/src/app/node_modules ./node_modules
 COPY . .
 
 RUN npm run build
-RUN npm ci --only --production && npm cache clean --force
+RUN npm ci -f --only=production && npm cache clean --force
 
-# Create the application image
+# Create the application image (Docker Image)
 FROM node:24-alpine3.22 AS prod
 
 WORKDIR /usr/src/app

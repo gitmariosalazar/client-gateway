@@ -9,110 +9,92 @@ import { RpcException } from '@nestjs/microservices';
 import { ApiResponse } from '../responses/ApiResponse';
 import { statusCode } from 'src/settings/environments/status-code';
 
-@Catch(RpcException)
-export class RcpCustomExceptionFilter
-  implements RpcExceptionFilter<RpcException>
-{
-  private readonly logger = new Logger(RcpCustomExceptionFilter.name);
+@Catch() // Captura todos los errores, no solo RpcException
+export class RpcCustomExceptionFilter implements RpcExceptionFilter {
+  private readonly logger = new Logger(RpcCustomExceptionFilter.name);
 
-  catch(exception: RpcException, host: ArgumentsHost): Observable<any> {
+  catch(exception: any, host: ArgumentsHost): Observable<any> {
     const ctx = host.switchToRpc();
     const response = ctx.getContext();
+    const requestUrl = response.req?.url || 'unknown';
 
-    const errorResponse = exception.getError();
-    this.logger.error(`Caught RpcException: ${JSON.stringify(errorResponse)}`);
-    if (errorResponse instanceof AggregateError) {
-      const errorDetails = errorResponse.errors || [];
-      const connectionErrors = errorDetails.filter(
-        (err: any) => err.code === 'ECONNREFUSED',
+    let statusCodeValue = statusCode.INTERNAL_SERVER_ERROR; // 500 por defecto
+    let message: string | string[] = ['An unknown error occurred'];
+
+    // Manejar RpcException
+    if (exception instanceof RpcException) {
+      const errorResponse = exception.getError();
+      this.logger.error(
+        `RpcException caught: ${JSON.stringify(errorResponse)}`,
       );
 
-      if (connectionErrors.length > 0) {
-        this.logger.error('Connection refused error detected:');
-        connectionErrors.forEach((err: any) => {
-          this.logger.error(`Failed to connect to ${err.address}:${err.port}`);
-        });
-
-        const apiResponse = new ApiResponse(
-          [
-            'Connection refused by target service. Please check the service availability.',
-          ],
-          null,
-          response.req.url,
+      // Manejar AggregateError para errores de conexión (ECONNREFUSED)
+      if (errorResponse instanceof AggregateError) {
+        const errorDetails = errorResponse.errors || [];
+        const connectionErrors = errorDetails.filter(
+          (err: any) => err.code === 'ECONNREFUSED',
         );
-        apiResponse.status_code = statusCode.SERVICE_UNAVAILABLE;
-        return response.status(statusCode.SERVICE_UNAVAILABLE).json({
-          time: new Date().toISOString(),
-          message:
-            typeof apiResponse.message === 'string'
-              ? [apiResponse.message]
-              : apiResponse.message,
-          url: apiResponse.url,
-          data: apiResponse.data,
-          status_code: apiResponse.status_code,
-        });
+
+        if (connectionErrors.length > 0) {
+          this.logger.error('Connection refused error detected:');
+          connectionErrors.forEach((err: any) => {
+            this.logger.error(
+              `Failed to connect to ${err.address}:${err.port}`,
+            );
+          });
+          statusCodeValue = statusCode.SERVICE_UNAVAILABLE; // 503
+          message = [
+            'Connection refused by target service. Please check the service availability.',
+          ];
+        } else {
+          statusCodeValue = statusCode.INTERNAL_SERVER_ERROR;
+          message = errorDetails.map(
+            (err: any) => err.message || 'Unknown error',
+          );
+        }
+      } else if (typeof errorResponse === 'object' && errorResponse !== null) {
+        // Manejar estructura { statusCode, message } o { error: { statusCode, message } }
+        const errorObject = (errorResponse as any).error || errorResponse;
+        const { statusCode: code, message: errorMessage } = errorObject as {
+          statusCode?: number;
+          message?: string | string[];
+        };
+        statusCodeValue = code || statusCode.INTERNAL_SERVER_ERROR;
+        message = errorMessage || ['An unknown error occurred'];
+      } else if (typeof errorResponse === 'string') {
+        message = [errorResponse];
+        statusCodeValue = statusCode.INTERNAL_SERVER_ERROR;
       }
-    }
-
-    const err = errorResponse as any;
-    if (
-      typeof err === 'object' &&
-      err?.error?.statusCode === statusCode.SERVICE_UNAVAILABLE &&
-      err?.error?.message === 'Target microservice is not responding'
-    ) {
-      this.logger.warn('Timeout: Target microservice is not responding');
-
-      const apiResponse = new ApiResponse(
-        [err.error.message],
-        null,
-        response.req.url,
-      );
-      apiResponse.status_code = statusCode.SERVICE_UNAVAILABLE;
-
-      return response.status(statusCode.SERVICE_UNAVAILABLE).json({
-        time: new Date().toISOString(),
-        message: apiResponse.message,
-        url: apiResponse.url,
-        data: apiResponse.data,
-        status_code: apiResponse.status_code,
-      });
-    }
-
-    let apiResponse = new ApiResponse(
-      ['An unknown error occurred'],
-      null,
-      response.req.url,
-    );
-    let httpStatusCode = 500;
-
-    if (typeof errorResponse === 'object' && errorResponse !== null) {
-      const { statusCode: code, message } = errorResponse as {
-        statusCode: number;
-        message: string;
-      };
-      httpStatusCode = code || 500;
-      apiResponse = new ApiResponse(message, null, response.req.url);
-      apiResponse.status_code = httpStatusCode;
-    } else if (typeof errorResponse === 'string') {
-      apiResponse = new ApiResponse(
-        [errorResponse || 'An unknown error occurred'],
-        null,
-        response.req.url,
-      );
-      apiResponse.status_code = httpStatusCode;
     } else {
-      apiResponse.status_code = httpStatusCode;
+      // Manejar otros tipos de errores (no RpcException)
+      this.logger.error(
+        `Unexpected error caught: ${exception.message}`,
+        exception.stack,
+      );
+      statusCodeValue = statusCode.INTERNAL_SERVER_ERROR;
+      message = [exception.message || 'An unexpected error occurred'];
     }
 
-    return response.status(httpStatusCode).json({
+    // Crear respuesta con ApiResponse
+    const apiResponse = new ApiResponse(
+      Array.isArray(message) ? message : [message],
+      null,
+      requestUrl,
+    );
+    apiResponse.status_code = statusCodeValue;
+
+    // Estructura de respuesta final
+    const responseBody = {
       time: new Date().toISOString(),
-      message:
-        typeof apiResponse.message === 'string'
-          ? [apiResponse.message]
-          : apiResponse.message,
+      message: Array.isArray(apiResponse.message)
+        ? apiResponse.message
+        : [apiResponse.message],
       url: apiResponse.url,
       data: apiResponse.data,
       status_code: apiResponse.status_code,
-    });
+    };
+
+    this.logger.error(`Error response sent: ${JSON.stringify(responseBody)}`);
+    return response.status(statusCodeValue).json(responseBody);
   }
 }

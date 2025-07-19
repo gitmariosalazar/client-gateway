@@ -16,9 +16,6 @@ export async function sendKafkaRequest<T>(
       });
     }
 
-    throw new RpcException({
-      statusCode: statusCode.INTERNAL_SERVER_ERROR,
-      message: error?.message || 'Unexpected error in Kafka communication',
-    });
+    throw error;
   }
 }
