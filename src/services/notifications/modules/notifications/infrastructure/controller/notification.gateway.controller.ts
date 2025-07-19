@@ -123,7 +123,7 @@ export class NotificationGatewayController implements OnModuleInit {
   })
   async updateNotification(
     @Req() request: Request,
-    @Param('idNotifications', ParseIntPipe) idNotifications: number,
+    @Param('idNotifications') idNotifications: string,
     @Body() notification: UpdateNotificationRequest,
   ): Promise<ApiResponse> {
     try {
@@ -173,7 +173,7 @@ export class NotificationGatewayController implements OnModuleInit {
   })
   async findNotificationById(
     @Req() request: Request,
-    @Param('idNotifications', ParseIntPipe) idNotifications: number,
+    @Param('idNotifications') idNotifications: string,
   ): Promise<ApiResponse> {
     try {
       const response = await sendKafkaRequest(
@@ -225,7 +225,7 @@ export class NotificationGatewayController implements OnModuleInit {
   })
   async deleteNotification(
     @Req() request: Request,
-    @Param('idNotifications', ParseIntPipe) idNotifications: number,
+    @Param('idNotifications') idNotifications: string,
   ): Promise<ApiResponse> {
     try {
       const response = await sendKafkaRequest(
