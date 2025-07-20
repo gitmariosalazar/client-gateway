@@ -76,7 +76,7 @@ export class UserGatewayController implements OnModuleInit {
   })
   async findById(
     @Req() request: Request,
-    @Param('idUser', ParseIntPipe) idUser: number,
+    @Param('idUser') idUser: string,
   ): Promise<ApiResponse> {
     try {
       const user = await sendKafkaRequest(
@@ -137,7 +137,7 @@ export class UserGatewayController implements OnModuleInit {
   })
   async update(
     @Req() request: Request,
-    @Param('idUser', ParseIntPipe) idUser: number,
+    @Param('idUser') idUser: string,
     @Body() userRequest: UpdateUserRequest,
   ): Promise<ApiResponse> {
     try {
@@ -161,7 +161,7 @@ export class UserGatewayController implements OnModuleInit {
   })
   async delete(
     @Req() request: Request,
-    @Param('idUser', ParseIntPipe) idUser: number,
+    @Param('idUser') idUser: string,
   ): Promise<ApiResponse> {
     try {
       const deleted = await sendKafkaRequest(

@@ -53,7 +53,7 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'development') {
     app.listen(environments.serverPortDevelopment);
     logger.log(
-      `🚀🎉 This API Gateway is running on: http://127.0.0.1:${environments.serverPortDevelopment}`,
+      `🚀🎉 This API Gateway is running on: http://127.0.0.1:${environments.serverPortDevelopment} ✅`,
     );
   }
 }

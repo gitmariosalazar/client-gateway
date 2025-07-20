@@ -90,7 +90,7 @@ export class AuthGatewayController implements OnModuleInit {
         module: 'Authentication Module',
         eventType: 'sign_in',
         userId:
-          typeof tokenResponse.idUser === 'number' ? tokenResponse.idUser : 0,
+          typeof tokenResponse.idUser === 'number' ? tokenResponse.idUser : '',
         userEmail: signInRequest.email,
         ipAddress: clientIp,
         userAgent: request.headers['user-agent'],
@@ -168,7 +168,7 @@ export class AuthGatewayController implements OnModuleInit {
         module: 'Authentication Module',
         eventType: 'sign_up',
         userId:
-          typeof tokenResponse.idUser === 'number' ? tokenResponse.idUser : 0,
+          typeof tokenResponse.idUser === 'number' ? tokenResponse.idUser : '',
         userEmail: signUpRequest.userEmail,
         ipAddress: clientIp,
         userAgent: request.headers['user-agent'],
@@ -207,7 +207,19 @@ export class AuthGatewayController implements OnModuleInit {
     try {
       this.logger.log(`Received logout request for user`);
       // Here you would typically handle the logout logic, such as invalidating the token
-      res.clearCookie('auth_token'); // Clear the cookie
+      res.clearCookie('auth_token', {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none', // 'lax' is a good default for CSRF protection
+        maxAge: 0, // Clear the cookie immediately
+      }); // Clear the cookie
+
+      res.clearCookie('refresh_token', {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none', // 'lax' is a good default for CSRF protection
+        maxAge: 0, // Clear the cookie immediately
+      }); // Clear the cookie
       this.logger.log(`User logged out successfully`);
       return new ApiResponse('User logged out successfully', null, request.url);
     } catch (error) {
