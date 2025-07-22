@@ -29,6 +29,7 @@
     "@types/cookie-parser": "^1.4.9",
     "@types/morgan": "^1.9.10",
     "@types/nodemon": "^3.1.1",
+    "axios": "^1.10.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.0.1",
     "joi": "^17.13.3",

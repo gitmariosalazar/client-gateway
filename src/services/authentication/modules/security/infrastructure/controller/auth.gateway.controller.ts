@@ -21,6 +21,10 @@ import { statusCode } from 'src/settings/environments/status-code';
 import { sendKafkaRequest } from 'src/shared/utils/kafka/send.kafka.request';
 import { Response } from 'express';
 import { JwtService } from '@nestjs/jwt';
+import axios from 'axios';
+import { SessionResponse } from '../../domain/schemas/dto/response/session.response';
+import { VerifyTokenRequest } from '../../domain/schemas/dto/request/verify-token.request';
+import { RefreshTokenResponse } from '../../domain/schemas/dto/response/refresh-token.response';
 
 @Controller('auth')
 @ApiTags('Authentication')
@@ -40,6 +44,8 @@ export class AuthGatewayController implements OnModuleInit {
     this.authClient.subscribeToResponseOf('auth.verify-token');
     this.authClient.subscribeToResponseOf('auth.findUserByEmail');
     this.authClient.subscribeToResponseOf('auth.currentUser');
+    this.authClient.subscribeToResponseOf('auth.get-session');
+    this.authClient.subscribeToResponseOf('auth.refresh-token');
     await this.authClient.connect();
     console.log(this.authClient['responsePatterns']);
   }
@@ -227,6 +233,76 @@ export class AuthGatewayController implements OnModuleInit {
     }
   }
 
+  @Get('session')
+  @ApiOperation({
+    summary: 'Get user session',
+    description: 'This endpoint retrieves the user session information.',
+  })
+  async getSession(
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiResponse> {
+    try {
+      this.logger.log(`Received request for user session`);
+      const auth_token =
+        request.cookies['auth_token'] ||
+        request.headers.authorization?.split(' ')[1];
+
+      const rawIp =
+        request.headers['x-forwarded-for'] || request.socket.remoteAddress;
+      const ip = Array.isArray(rawIp) ? rawIp[0] : rawIp || 'Unknown';
+
+      // Obtener ubicación
+      const location = await this.lookupGeoLocation(ip.toString());
+
+      const verifyToken: VerifyTokenRequest = new VerifyTokenRequest(
+        auth_token,
+        ip,
+      );
+
+      const session: SessionResponse = await sendKafkaRequest(
+        this.authClient.send('auth.get-session', { verifyToken: verifyToken }),
+      );
+
+      if (!session) {
+        this.logger.warn(`No session found for token: ${auth_token}`);
+        throw new RpcException({
+          statusCode: statusCode.NOT_FOUND,
+          message: 'Session not found ❌',
+        });
+      }
+
+      const currentTime = new Date();
+      const expiresAtDate = new Date(session.expiresAt);
+      console.log('Current time (toISOString):', currentTime.toISOString()); // UTC ISO string
+      console.log('Expires at (toISOString):', expiresAtDate.toISOString()); // UTC ISO string
+
+      console.log(
+        'Current time (toLocaleString):',
+        currentTime.toLocaleString(),
+      ); // Local readable string
+      console.log(
+        'Expires at (toLocaleString):',
+        expiresAtDate.toLocaleString(),
+      ); // Local readable string
+
+      let message: string = `Session for user ${session.userId} is valid until ${expiresAtDate.toLocaleString()}`;
+      let code: number = 200;
+
+      if (currentTime > expiresAtDate) {
+        this.logger.warn(`Session for user ${session.userId} has expired`);
+        message = `Session for user ${session.userId} has expired`;
+        code = statusCode.UNAUTHORIZED;
+      }
+
+      this.logger.log(`User session retrieved successfully`);
+      //res.status(code);
+      return new ApiResponse(message, session, request.url, code);
+    } catch (error) {
+      throw new RpcException(error);
+    }
+  }
+
   @Get('verify-token')
   @ApiOperation({
     summary: 'Verify user token',
@@ -241,11 +317,24 @@ export class AuthGatewayController implements OnModuleInit {
       const auth_token =
         request.cookies['auth_token'] ||
         request.headers.authorization?.split(' ')[1];
-      const isValidToken: boolean = await sendKafkaRequest(
-        this.authClient.send('auth.verify-token', { auth_token: auth_token }),
+
+      const rawIp =
+        request.headers['x-forwarded-for'] || request.socket.remoteAddress;
+      const ip = Array.isArray(rawIp) ? rawIp[0] : rawIp || 'Unknown';
+
+      // Obtener ubicación
+      const location = await this.lookupGeoLocation(ip.toString());
+
+      const verifyToken: VerifyTokenRequest = new VerifyTokenRequest(
+        auth_token,
+        ip,
       );
 
-      if (!isValidToken) {
+      const isValidToken: boolean = await sendKafkaRequest(
+        this.authClient.send('auth.verify-token', { verifyToken: verifyToken }),
+      );
+
+      if (isValidToken === null) {
         this.logger.warn(`Invalid token received`);
         throw new RpcException({
           statusCode: statusCode.UNAUTHORIZED,
@@ -253,8 +342,19 @@ export class AuthGatewayController implements OnModuleInit {
         });
       }
 
+      const tokenDecoded = this.jwtService.decode(auth_token);
+
+      const sessionResponse: SessionResponse = {
+        sessionId: tokenDecoded['jti'] as string,
+        userId: tokenDecoded['sub'] as string,
+        ipAddress: ip,
+        createdAt: new Date(tokenDecoded['iat'] * 1000),
+        expiresAt: new Date(tokenDecoded['exp'] * 1000),
+        location: location,
+      };
+
       this.logger.log(`Token verification successful`);
-      return new ApiResponse('Token is valid', isValidToken, request.url);
+      return new ApiResponse('Token is valid', sessionResponse, request.url);
     } catch (error) {
       throw new RpcException(error);
     }
@@ -288,6 +388,82 @@ export class AuthGatewayController implements OnModuleInit {
       );
     } catch (error) {
       throw new RpcException(error);
+    }
+  }
+
+  @Post('refresh-token')
+  @ApiOperation({
+    summary: 'Refresh user token',
+    description:
+      'This endpoint allows a user to refresh their authentication token.',
+  })
+  async refreshToken(
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiResponse> {
+    try {
+      this.logger.log(`Received refresh token request`);
+      const refreshToken =
+        request.cookies['refresh_token'] ||
+        request.headers.authorization?.split(' ')[1];
+
+      if (!refreshToken) {
+        throw new RpcException({
+          statusCode: statusCode.UNAUTHORIZED,
+          message: 'Refresh token is missing ❌',
+        });
+      }
+
+      const newTokens: RefreshTokenResponse = await sendKafkaRequest(
+        this.authClient.send('auth.refresh-token', { refreshToken }),
+      );
+
+      res.cookie('auth_token', newTokens.accessToken, {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none', // 'lax' is a good default for CSRF protection
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+      });
+
+      res.cookie('refresh_token', newTokens.refreshToken, {
+        httpOnly: true, // Prevents JavaScript access to the cookie
+        secure: true, // Set to true if using HTTPS
+        sameSite: 'none', // 'lax' is a good default for CSRF protection
+        maxAge: 1000 * 60 * 60 * 24, // 1 day
+      });
+
+      this.logger.log(`Refresh token successful`);
+      return new ApiResponse(
+        'Tokens refreshed successfully',
+        newTokens,
+        request.url,
+      );
+    } catch (error) {
+      throw new RpcException(error);
+    }
+  }
+
+  private async lookupGeoLocation(ip: string): Promise<{
+    country: string;
+    city: string;
+    region: string;
+  }> {
+    try {
+      const response = await axios.get(`http://ip-api.com/json/${ip}`);
+      const data = response.data;
+      console.log(`first: ${data}`);
+      return {
+        country: data.country || 'Unknown',
+        city: data.city || 'Unknown',
+        region: data.regionName || 'Unknown',
+      };
+    } catch (error) {
+      console.warn(`Could not fetch geo location: ${error.message}`);
+      return {
+        country: 'Unknown',
+        city: 'Unknown',
+        region: 'Unknown',
+      };
     }
   }
 }

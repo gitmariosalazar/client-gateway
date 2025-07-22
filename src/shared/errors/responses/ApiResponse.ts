@@ -5,10 +5,10 @@ export class ApiResponse {
   url: string;
   data: any;
 
-  constructor(message: any, data: any, url: string) {
+  constructor(message: any, data: any, url: string, statusCode?: number) {
     this.message = typeof message === 'string' ? [message] : message;
     this.data = data;
-    this.status_code = 201;
+    this.status_code = statusCode || 201;
     this.url = url.replace('uri=', '');
   }
 }
