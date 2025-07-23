@@ -1,7 +1,6 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty } from '@nestjs/swagger';
 
 export class SignInRequest {
-
   @ApiProperty({
     description: 'The email address of the user',
     example: 'mariosalazar.ms.10@gmail.com',
@@ -13,7 +12,7 @@ export class SignInRequest {
 
   @ApiProperty({
     description: 'The password of the user',
-    example: 'password123',
+    example: 'password-mario',
     required: true,
     type: String,
     format: 'password',

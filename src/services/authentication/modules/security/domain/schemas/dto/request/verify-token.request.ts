@@ -13,8 +13,11 @@ export class VerifyTokenRequest {
   })
   ipAddress?: string;
 
-  constructor(auth_token: string, ipAddress?: string) {
+  refresh_token?: string;
+
+  constructor(auth_token: string, ipAddress?: string, refresh_token?: string) {
     this.auth_token = auth_token;
     this.ipAddress = ipAddress;
+    this.refresh_token = refresh_token;
   }
 }

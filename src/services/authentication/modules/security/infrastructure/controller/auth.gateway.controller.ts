@@ -246,7 +246,13 @@ export class AuthGatewayController implements OnModuleInit {
       this.logger.log(`Received request for user session`);
       const auth_token =
         request.cookies['auth_token'] ||
-        request.headers.authorization?.split(' ')[1];
+        request.headers.authorization?.split(' ')[1] ||
+        '';
+
+      const refresh_token =
+        request.cookies['refresh_token'] ||
+        request.headers.authorization?.split(' ')[1] ||
+        '';
 
       const rawIp =
         request.headers['x-forwarded-for'] || request.socket.remoteAddress;
@@ -258,6 +264,7 @@ export class AuthGatewayController implements OnModuleInit {
       const verifyToken: VerifyTokenRequest = new VerifyTokenRequest(
         auth_token,
         ip,
+        refresh_token,
       );
 
       const session: SessionResponse = await sendKafkaRequest(
