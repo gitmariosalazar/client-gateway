@@ -280,7 +280,7 @@ export class AuthGatewayController implements OnModuleInit {
       }
 
       const currentTime = new Date();
-      const expiresAtDate = new Date(session.expiresAt);
+      const expiresAtDate = new Date(session.expiresAtAccessToken);
       console.log('Current time (toISOString):', currentTime.toISOString()); // UTC ISO string
       console.log('Expires at (toISOString):', expiresAtDate.toISOString()); // UTC ISO string
 
@@ -355,8 +355,8 @@ export class AuthGatewayController implements OnModuleInit {
         sessionId: tokenDecoded['jti'] as string,
         userId: tokenDecoded['sub'] as string,
         ipAddress: ip,
-        createdAt: new Date(tokenDecoded['iat'] * 1000),
-        expiresAt: new Date(tokenDecoded['exp'] * 1000),
+        createdAtAccessToken: new Date(tokenDecoded['iat'] * 1000),
+        expiresAtAccessToken: new Date(tokenDecoded['exp'] * 1000),
         location: location,
       };
 
