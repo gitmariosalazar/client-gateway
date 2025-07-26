@@ -24,6 +24,11 @@ async function bootstrap() {
     .setBasePath('api')
     .setDescription('API - Clean Architecture with NestJS & TypeScript')
     .setVersion('1.0.0')
+    .addBearerAuth({
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'JWT',
+    })
     .addCookieAuth('auth_token', {
       type: 'apiKey',
       in: 'cookie',
